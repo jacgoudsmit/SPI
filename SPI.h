@@ -2,7 +2,8 @@
  * Copyright (c) 2010 by Cristian Maglie <c.maglie@bug.st>
  * Copyright (c) 2014 by Paul Stoffregen <paul@pjrc.com> (Transaction API)
  * Copyright (c) 2014 by Matthijs Kooijman <matthijs@stdin.nl> (SPISettings AVR)
- * SPI Master library for arduino.
+ * Copyright (c) 2021 by Jac Goudsmit (Slave Mode)
+ * SPI library for arduino.
  *
  * This file is free software; you can redistribute it and/or modify
  * it under the terms of either the GNU General Public License version 2
@@ -67,7 +68,7 @@
 
 
 /**********************************************************/
-/*     8 bit AVR-based boards				  */
+/*     8 bit AVR-based boards                             */
 /**********************************************************/
 
 #if defined(__AVR__)
@@ -315,17 +316,18 @@ private:
 
 
 /**********************************************************/
-/*     32 bit Teensy 3.x				  */
+/*     32 bit Teensy 3.x                                  */
 /**********************************************************/
 
 #elif defined(__arm__) && defined(TEENSYDUINO) && defined(KINETISK)
 
 #define SPI_HAS_NOTUSINGINTERRUPT 1
 #define SPI_ATOMIC_VERSION 1
+#define SPI_HAS_SLAVEMODE 1
 
 class SPISettings {
 public:
-	SPISettings(uint32_t clock, uint8_t bitOrder, uint8_t dataMode) {
+    SPISettings(uint32_t clock, uint8_t bitOrder, uint8_t dataMode) {  // Use clock=0 for slave mode. bitOrder=LSBFIRST not supported in slave mode
 		if (__builtin_constant_p(clock)) {
 			init_AlwaysInline(clock, bitOrder, dataMode);
 		} else {
@@ -336,70 +338,81 @@ public:
 		init_AlwaysInline(4000000, MSBFIRST, SPI_MODE0);
 	}
 private:
-	void init_MightInline(uint32_t clock, uint8_t bitOrder, uint8_t dataMode) {
+	void init_MightInline(uint32_t clock, uint8_t bitOrder, uint8_t dataMode) { // Use clock=0 for slave mode. bitOrder=LSBFIRST not supported in slave mode
 		init_AlwaysInline(clock, bitOrder, dataMode);
 	}
-	void init_AlwaysInline(uint32_t clock, uint8_t bitOrder, uint8_t dataMode)
+	void init_AlwaysInline(uint32_t clock, uint8_t bitOrder, uint8_t dataMode) // Use clock=0 for slave mode. bitOrder is ignored in slave mode.
 	  __attribute__((__always_inline__)) {
 		uint32_t t, c = SPI_CTAR_FMSZ(7);
-		if (bitOrder == LSBFIRST) c |= SPI_CTAR_LSBFE;
-		if (__builtin_constant_p(clock)) {
-			if	  (clock >= F_BUS / 2) {
-				t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(0) | SPI_CTAR_DBR
-				  | SPI_CTAR_CSSCK(0);
-			} else if (clock >= F_BUS / 3) {
-				t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(0) | SPI_CTAR_DBR
-				  | SPI_CTAR_CSSCK(0);
-			} else if (clock >= F_BUS / 4) {
-				t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(0) | SPI_CTAR_CSSCK(0);
-			} else if (clock >= F_BUS / 5) {
-				t = SPI_CTAR_PBR(2) | SPI_CTAR_BR(0) | SPI_CTAR_DBR
-				  | SPI_CTAR_CSSCK(0);
-			} else if (clock >= F_BUS / 6) {
-				t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(0) | SPI_CTAR_CSSCK(0);
-			} else if (clock >= F_BUS / 8) {
-				t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(1);
-			} else if (clock >= F_BUS / 10) {
-				t = SPI_CTAR_PBR(2) | SPI_CTAR_BR(0) | SPI_CTAR_CSSCK(0);
-			} else if (clock >= F_BUS / 12) {
-				t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(1);
-			} else if (clock >= F_BUS / 16) {
-				t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(3) | SPI_CTAR_CSSCK(2);
-			} else if (clock >= F_BUS / 20) {
-				t = SPI_CTAR_PBR(2) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(0);
-			} else if (clock >= F_BUS / 24) {
-				t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(3) | SPI_CTAR_CSSCK(2);
-			} else if (clock >= F_BUS / 32) {
-				t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(4) | SPI_CTAR_CSSCK(3);
-			} else if (clock >= F_BUS / 40) {
-				t = SPI_CTAR_PBR(2) | SPI_CTAR_BR(3) | SPI_CTAR_CSSCK(2);
-			} else if (clock >= F_BUS / 56) {
-				t = SPI_CTAR_PBR(3) | SPI_CTAR_BR(3) | SPI_CTAR_CSSCK(2);
-			} else if (clock >= F_BUS / 64) {
-				t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(5) | SPI_CTAR_CSSCK(4);
-			} else if (clock >= F_BUS / 96) {
-				t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(5) | SPI_CTAR_CSSCK(4);
-			} else if (clock >= F_BUS / 128) {
-				t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(6) | SPI_CTAR_CSSCK(5);
-			} else if (clock >= F_BUS / 192) {
-				t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(6) | SPI_CTAR_CSSCK(5);
-			} else if (clock >= F_BUS / 256) {
-				t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(7) | SPI_CTAR_CSSCK(6);
-			} else if (clock >= F_BUS / 384) {
-				t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(7) | SPI_CTAR_CSSCK(6);
-			} else if (clock >= F_BUS / 512) {
-				t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(8) | SPI_CTAR_CSSCK(7);
-			} else if (clock >= F_BUS / 640) {
-				t = SPI_CTAR_PBR(2) | SPI_CTAR_BR(7) | SPI_CTAR_CSSCK(6);
-			} else {	 /* F_BUS / 768 */
-				t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(8) | SPI_CTAR_CSSCK(7);
+		// The caller can set the clock frequency to 0 to set up the port
+		// for slave mode. In slave mode, only the FMSZ, CPOL and CPHA
+		// fields are in use. Additionally, the FMSZ field is 5 bits wide
+		// in slave mode (4 bits in master mode) because in slave mode, the
+		// SPI ports allow frame sizes up to 32 (vs 16 in master mode).
+		if (clock) {
+			if (bitOrder == LSBFIRST) c |= SPI_CTAR_LSBFE;
+			if (__builtin_constant_p(clock)) {
+				if	  (clock >= F_BUS / 2) {
+					t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(0) | SPI_CTAR_DBR
+					  | SPI_CTAR_CSSCK(0);
+				} else if (clock >= F_BUS / 3) {
+					t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(0) | SPI_CTAR_DBR
+					  | SPI_CTAR_CSSCK(0);
+				} else if (clock >= F_BUS / 4) {
+					t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(0) | SPI_CTAR_CSSCK(0);
+				} else if (clock >= F_BUS / 5) {
+					t = SPI_CTAR_PBR(2) | SPI_CTAR_BR(0) | SPI_CTAR_DBR
+					  | SPI_CTAR_CSSCK(0);
+				} else if (clock >= F_BUS / 6) {
+					t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(0) | SPI_CTAR_CSSCK(0);
+				} else if (clock >= F_BUS / 8) {
+					t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(1);
+				} else if (clock >= F_BUS / 10) {
+					t = SPI_CTAR_PBR(2) | SPI_CTAR_BR(0) | SPI_CTAR_CSSCK(0);
+				} else if (clock >= F_BUS / 12) {
+					t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(1);
+				} else if (clock >= F_BUS / 16) {
+					t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(3) | SPI_CTAR_CSSCK(2);
+				} else if (clock >= F_BUS / 20) {
+					t = SPI_CTAR_PBR(2) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(0);
+				} else if (clock >= F_BUS / 24) {
+					t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(3) | SPI_CTAR_CSSCK(2);
+				} else if (clock >= F_BUS / 32) {
+					t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(4) | SPI_CTAR_CSSCK(3);
+				} else if (clock >= F_BUS / 40) {
+					t = SPI_CTAR_PBR(2) | SPI_CTAR_BR(3) | SPI_CTAR_CSSCK(2);
+				} else if (clock >= F_BUS / 56) {
+					t = SPI_CTAR_PBR(3) | SPI_CTAR_BR(3) | SPI_CTAR_CSSCK(2);
+				} else if (clock >= F_BUS / 64) {
+					t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(5) | SPI_CTAR_CSSCK(4);
+				} else if (clock >= F_BUS / 96) {
+					t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(5) | SPI_CTAR_CSSCK(4);
+				} else if (clock >= F_BUS / 128) {
+					t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(6) | SPI_CTAR_CSSCK(5);
+				} else if (clock >= F_BUS / 192) {
+					t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(6) | SPI_CTAR_CSSCK(5);
+				} else if (clock >= F_BUS / 256) {
+					t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(7) | SPI_CTAR_CSSCK(6);
+				} else if (clock >= F_BUS / 384) {
+					t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(7) | SPI_CTAR_CSSCK(6);
+				} else if (clock >= F_BUS / 512) {
+					t = SPI_CTAR_PBR(0) | SPI_CTAR_BR(8) | SPI_CTAR_CSSCK(7);
+				} else if (clock >= F_BUS / 640) {
+					t = SPI_CTAR_PBR(2) | SPI_CTAR_BR(7) | SPI_CTAR_CSSCK(6);
+				} else {     /* F_BUS / 768 */
+					t = SPI_CTAR_PBR(1) | SPI_CTAR_BR(8) | SPI_CTAR_CSSCK(7);
+				}
+			} else {
+				for (uint32_t i=0; i<23; i++) {
+					t = ctar_clock_table[i];
+					if (clock >= F_BUS / ctar_div_table[i]) break;
+				}
 			}
+			mcr_master = SPI_MCR_MSTR; // Set the master flag
 		} else {
-			for (uint32_t i=0; i<23; i++) {
-				t = ctar_clock_table[i];
-				if (clock >= F_BUS / ctar_div_table[i]) break;
-			}
-		}
+			t = 0;
+			mcr_master = 0; // Clear the master flag in slave mode
+		} // if (clock)
 		if (dataMode & 0x08) {
 			c |= SPI_CTAR_CPOL;
 		}
@@ -412,6 +425,7 @@ private:
 	static const uint16_t ctar_div_table[23];
 	static const uint32_t ctar_clock_table[23];
 	uint32_t ctar;
+	uint32_t mcr_master;
 	friend class SPIClass;
 };
 
@@ -419,14 +433,14 @@ private:
 
 class SPIClass { // Teensy 3.x
 public:
-#if defined(__MK20DX128__) || defined(__MK20DX256__)
-	static const uint8_t CNT_MISO_PINS = 2;
-	static const uint8_t CNT_MOSI_PINS = 2;
+#if defined(__MK20DX128__) || defined(__MK20DX256__) // Teensy 3.0 / 3.1 / 3.2
+	static const uint8_t CNT_SDI_PINS = 2;
+	static const uint8_t CNT_SDO_PINS = 2;
 	static const uint8_t CNT_SCK_PINS = 2;
 	static const uint8_t CNT_CS_PINS = 9;
-#elif defined(__MK64FX512__) || defined(__MK66FX1M0__)
-	static const uint8_t CNT_MISO_PINS = 4;
-	static const uint8_t CNT_MOSI_PINS = 4;
+#elif defined(__MK64FX512__) || defined(__MK66FX1M0__) // Teensy 3.5 / 3.6
+	static const uint8_t CNT_SDI_PINS = 4;
+	static const uint8_t CNT_SDO_PINS = 4;
 	static const uint8_t CNT_SCK_PINS = 3;
 	static const uint8_t CNT_CS_PINS = 11;
 #endif
@@ -439,15 +453,15 @@ public:
 		uint8_t  tx_dma_channel;
 		uint8_t  rx_dma_channel;
 		void     (*dma_rxisr)();
-		uint8_t  miso_pin[CNT_MISO_PINS];
-		uint32_t  miso_mux[CNT_MISO_PINS];
-		uint8_t  mosi_pin[CNT_MOSI_PINS];
-		uint32_t  mosi_mux[CNT_MOSI_PINS];
+		uint8_t  sdi_pin[CNT_SDI_PINS]; // Serial Data In:  MISO in Master mode, MOSI in Slave mode
+		uint32_t sdi_mux[CNT_SDI_PINS]; // Serial Data In:  MISO in Master mode, MOSI in Slave mode
+		uint8_t  sdo_pin[CNT_SDO_PINS]; // Serial Data Out: MOSI in Master mode, MISO in Slave mode
+		uint32_t sdo_mux[CNT_SDO_PINS]; // Serial Data Out: MOSI in Master mode, MISO in Slave mode
 		uint8_t  sck_pin[CNT_SCK_PINS];
-		uint32_t  sck_mux[CNT_SCK_PINS];
+		uint32_t sck_mux[CNT_SCK_PINS];
 		uint8_t  cs_pin[CNT_CS_PINS];
-		uint32_t  cs_mux[CNT_CS_PINS];
-		uint8_t  cs_mask[CNT_CS_PINS];
+		uint32_t cs_mux[CNT_CS_PINS];
+		uint8_t  cs_mask[CNT_CS_PINS]; // NOTE: slave mode can only use CS0, i.e. pins for which cs_mask is 0x1
 	} SPI_Hardware_t;
 	static const SPI_Hardware_t spi0_hardware;
 	static const SPI_Hardware_t spi1_hardware;
@@ -459,7 +473,7 @@ public:
 		: port_addr(myport), hardware_addr(myhardware) {
 	}
 	// Initialize the SPI library
-	void begin();
+	void begin(bool slavemode = false);
 
 	// If SPI is to used from within an interrupt, this function registers
 	// that interrupt with the SPI library, so beginTransaction() can
@@ -523,19 +537,19 @@ public:
 		if (port().CTAR0 != settings.ctar) {
 			port().MCR = SPI_MCR_MDIS | SPI_MCR_HALT | SPI_MCR_PCSIS(0x3F);
 			port().CTAR0 = settings.ctar;
-			port().CTAR1 = settings.ctar| SPI_CTAR_FMSZ(8);
-			port().MCR = SPI_MCR_MSTR | SPI_MCR_PCSIS(0x3F);
+			port().CTAR1 = mcr_master ? (settings.ctar| SPI_CTAR_FMSZ(8)) : 0; // Cannot be used in slave mode
+			port().MCR = mcr_master | SPI_MCR_PCSIS(0x3F);
 		}
 	}
 
-	// Write to the SPI bus (MOSI pin) and also receive (MISO pin)
+	// Write to the SPI bus (SDO pin) and also receive (from SDI pin)
 	uint8_t transfer(uint8_t data) {
 		port().SR = SPI_SR_TCF;
 		port().PUSHR = data;
 		while (!(port().SR & SPI_SR_TCF)) ; // wait
 		return port().POPR;
 	}
-	uint16_t transfer16(uint16_t data) {
+	uint16_t transfer16(uint16_t data) { // Won't work in slave mode because this relies on CTAR1 (selected with CTAS=1) which is unused in slave mode
 		port().SR = SPI_SR_TCF;
 		port().PUSHR = data | SPI_PUSHR_CTAS(1);
 		while (!(port().SR & SPI_SR_TCF)) ; // wait
@@ -595,7 +609,7 @@ public:
 
 	// This function is deprecated.	 New applications should use
 	// beginTransaction() to configure SPI settings.
-	void setBitOrder(uint8_t bitOrder);
+	void setBitOrder(uint8_t bitOrder); // In slave mode, only MSBFIRST is supported
 
 	// This function is deprecated.	 New applications should use
 	// beginTransaction() to configure SPI settings.
@@ -629,21 +643,25 @@ public:
 	void detachInterrupt() { }
 
 	// Teensy 3.x can use alternate pins for these 3 SPI signals.
-	void setMOSI(uint8_t pin);
-	void setMISO(uint8_t pin);
+	void setSDO(uint8_t pin);
+	void setSDI(uint8_t pin);
+	void setMOSI(uint8_t pin) { mcr_master ? setSDO(pin) : setSDI(pin); }
+	void setMISO(uint8_t pin) { mcr_master ? setSDI(pin) : setSDO(pin); }
 	void setSCK(uint8_t pin);
 
 	// return true if "pin" has special chip select capability
 	uint8_t pinIsChipSelect(uint8_t pin);
-	bool pinIsMOSI(uint8_t pin);
-	bool pinIsMISO(uint8_t pin);
+	bool pinIsSDO(uint8_t pin);
+	bool pinIsSDI(uint8_t pin);
+	bool pinIsMOSI(uint8_t pin) { return mcr_master ? pinIsSDO(pin) : pinIsSDI(pin); }
+	bool pinIsMISO(uint8_t pin) { return mcr_master ? pinIsSDI(pin) : pinIsSDO(pin); }
 	bool pinIsSCK(uint8_t pin);
 	// return true if both pin1 and pin2 have independent chip select capability
 	bool pinIsChipSelect(uint8_t pin1, uint8_t pin2);
 	// configure a pin for chip select and return its SPI_MCR_PCSIS bitmask
 	// setCS() is a special function, not intended for use from normal Arduino
 	// programs/sketches.  See the ILI3941_t3 library for an example.
-	uint8_t setCS(uint8_t pin);
+	uint8_t setCS(uint8_t pin); // In slave mode, only PCS0 (i.e. the pin numbers for which cs_mask[pin]==0x1) can be used
 
 private:
 	KINETISK_SPI_t & port() { return *(KINETISK_SPI_t *)port_addr; }
@@ -651,9 +669,10 @@ private:
 	void updateCTAR(uint32_t ctar);
 	uintptr_t port_addr;
 	uintptr_t hardware_addr;
-	uint8_t miso_pin_index = 0;
-	uint8_t mosi_pin_index = 0;
+	uint8_t sdi_pin_index = 0;
+	uint8_t sdo_pin_index = 0;
 	uint8_t sck_pin_index = 0;
+	uint32_t mcr_master = SPI_MCR_MSTR;
 	uint8_t interruptMasksUsed = 0;
 	uint32_t interruptMask[(NVIC_NUM_INTERRUPTS+31)/32] = {};
 	uint32_t interruptSave[(NVIC_NUM_INTERRUPTS+31)/32] = {};
@@ -677,7 +696,7 @@ private:
 
 
 /**********************************************************/
-/*     32 bit Teensy-LC					  */
+/*     32 bit Teensy-LC                                   */
 /**********************************************************/
 
 #elif defined(__arm__) && defined(TEENSYDUINO) && defined(KINETISL)

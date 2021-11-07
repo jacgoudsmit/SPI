@@ -14,7 +14,7 @@
 //#define DEBUG_DMA_TRANSFERS
 
 /**********************************************************/
-/*     8 bit AVR-based boards				  */
+/*     8 bit AVR-based boards                             */
 /**********************************************************/
 
 #if defined(__AVR__)
@@ -165,7 +165,7 @@ void SPIClass::transfer(const void * buf, void * retbuf, uint32_t count) {
 
 
 /**********************************************************/
-/*     32 bit Teensy 3.x				  */
+/*     32 bit Teensy 3.x                                  */
 /**********************************************************/
 
 #elif defined(__arm__) && defined(TEENSYDUINO) && defined(KINETISK)
@@ -190,14 +190,14 @@ inline void DMAChanneltransferCount(DMAChannel * dmac, unsigned int len) {
 #endif
 
 
-#if defined(__MK20DX128__) || defined(__MK20DX256__)
+#if defined(__MK20DX128__) || defined(__MK20DX256__) // Teensy 3.0 / 3.1 / 3.2
 #ifdef SPI_HAS_TRANSFER_ASYNC
 void _spi_dma_rxISR0(void) {SPI.dma_rxisr();}
 #else
 void _spi_dma_rxISR0(void) {;}
 #endif
 
-const SPIClass::SPI_Hardware_t SPIClass::spi0_hardware = {
+const SPIClass::SPI_Hardware_t SPIClass::spi0_hardware = { // Teensy 3.0 / 3.1 / 3.2
 	SIM_SCGC6, SIM_SCGC6_SPI0, 4, IRQ_SPI0,
 	32767, DMAMUX_SOURCE_SPI0_TX, DMAMUX_SOURCE_SPI0_RX,
 	_spi_dma_rxISR0,
@@ -213,7 +213,7 @@ const SPIClass::SPI_Hardware_t SPIClass::spi0_hardware = {
 };
 SPIClass SPI((uintptr_t)&KINETISK_SPI0, (uintptr_t)&SPIClass::spi0_hardware);
 
-#elif defined(__MK64FX512__) || defined(__MK66FX1M0__)
+#elif defined(__MK64FX512__) || defined(__MK66FX1M0__) // Teensy 3.5 / 3.6
 #ifdef SPI_HAS_TRANSFER_ASYNC
 void _spi_dma_rxISR0(void) {SPI.dma_rxisr();}
 void _spi_dma_rxISR1(void) {SPI1.dma_rxisr();}
@@ -223,7 +223,7 @@ void _spi_dma_rxISR0(void) {;}
 void _spi_dma_rxISR1(void) {;}
 void _spi_dma_rxISR2(void) {;}
 #endif
-const SPIClass::SPI_Hardware_t SPIClass::spi0_hardware = {
+const SPIClass::SPI_Hardware_t SPIClass::spi0_hardware = { // Teensy 3.5 / 3.6
 	SIM_SCGC6, SIM_SCGC6_SPI0, 4, IRQ_SPI0,
 	32767, DMAMUX_SOURCE_SPI0_TX, DMAMUX_SOURCE_SPI0_RX,
 	_spi_dma_rxISR0,
@@ -237,14 +237,14 @@ const SPIClass::SPI_Hardware_t SPIClass::spi0_hardware = {
 	PORT_PCR_MUX(2),  PORT_PCR_MUX(2), PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),   PORT_PCR_MUX(2),   PORT_PCR_MUX(3),
 	0x1, 0x1, 0x2, 0x2, 0x4, 0x4, 0x8, 0x8, 0x10, 0x1, 0x20
 };
-const SPIClass::SPI_Hardware_t SPIClass::spi1_hardware = {
+const SPIClass::SPI_Hardware_t SPIClass::spi1_hardware = { // Teensy 3.5 / 3.6
 	SIM_SCGC6, SIM_SCGC6_SPI1, 1, IRQ_SPI1,
 	#if defined(__MK66FX1M0__)
 	32767, DMAMUX_SOURCE_SPI1_TX, DMAMUX_SOURCE_SPI1_RX,
 	#else
 	// T3.5 does not have good DMA support on 1 and 2
 	511, 0, DMAMUX_SOURCE_SPI1,
-	#endif
+#endif
 	_spi_dma_rxISR1,
 	1, 5, 61, 59,
 	PORT_PCR_MUX(2), PORT_PCR_MUX(7), PORT_PCR_MUX(2), PORT_PCR_MUX(7),
@@ -256,7 +256,7 @@ const SPIClass::SPI_Hardware_t SPIClass::spi1_hardware = {
 	PORT_PCR_MUX(7),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  0,  0,  0,  0,   0,   0,
 	0x1, 0x1, 0x2, 0x1, 0x4, 0, 0, 0, 0, 0, 0
 };
-const SPIClass::SPI_Hardware_t SPIClass::spi2_hardware = {
+const SPIClass::SPI_Hardware_t SPIClass::spi2_hardware = { // Teensy 3.5 / 3.6
 	SIM_SCGC3, SIM_SCGC3_SPI2, 1, IRQ_SPI2,
 	#if defined(__MK66FX1M0__)
 	32767, DMAMUX_SOURCE_SPI2_TX, DMAMUX_SOURCE_SPI2_RX,
@@ -281,30 +281,42 @@ SPIClass SPI2((uintptr_t)&KINETISK_SPI2, (uintptr_t)&SPIClass::spi2_hardware);
 #endif
 
 
-void SPIClass::begin()
+void SPIClass::begin(bool slave)
 {
 	volatile uint32_t *reg;
-
+	
+	mcr_master = slave ? 0 : SPI_MCR_MSTR;
 	hardware().clock_gate_register |= hardware().clock_gate_mask;
 	port().MCR = SPI_MCR_MDIS | SPI_MCR_HALT | SPI_MCR_PCSIS(0x1F);
-	port().CTAR0 = SPI_CTAR_FMSZ(7) | SPI_CTAR_PBR(0) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(1);
-	port().CTAR1 = SPI_CTAR_FMSZ(15) | SPI_CTAR_PBR(0) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(1);
-	port().MCR = SPI_MCR_MSTR | SPI_MCR_PCSIS(0x1F);
-	reg = portConfigRegister(hardware().mosi_pin[mosi_pin_index]);
-	*reg = hardware().mosi_mux[mosi_pin_index];
-	reg = portConfigRegister(hardware().miso_pin[miso_pin_index]);
-	*reg= hardware().miso_mux[miso_pin_index];
+	port().CTAR0 = SPI_CTAR_FMSZ(7) | (mcr_master ? (SPI_CTAR_PBR(0) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(1)) : 0);
+	port().CTAR1 = (mcr_master ? (SPI_CTAR_FMSZ(15) | SPI_CTAR_PBR(0) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(1)) : 0); // CTAR1 cannot be used in slave mode
+	port().MCR |= SPI_MCR_CLR_RXF | SPI_MCR_CLR_TXF; // Clear the FIFO buffers
+	port().MCR = mcr_master | SPI_MCR_PCSIS(0x1F);
+	reg = portConfigRegister(hardware().sdo_pin[sdo_pin_index]);
+	*reg = hardware().sdo_mux[sdo_pin_index];
+	reg = portConfigRegister(hardware().sdi_pin[sdi_pin_index]);
+	*reg= hardware().sdi_mux[sdi_pin_index];
 	reg = portConfigRegister(hardware().sck_pin[sck_pin_index]);
 	*reg = hardware().sck_mux[sck_pin_index];
+	if (!mcr_master) {
+		// In slave mode, we need to set up the slave pin. Only the CS0 pins
+		// will work, i.e. any pin with mask 0x1.
+		// At this time, we set up the default pin i.e. the first in the
+		// array.
+		reg = portConfigRegister(hardware().cs_pin[0]);
+		*reg = hardware().cs_mux[0] | PORT_PCR_PE | PORT_PCR_PS; // pull up
+		// Note: In master mode, the main program is responsible for setting
+		// up the (in that case outgoing) CS pin.
+	}
 }
 
 void SPIClass::end()
 {
 	volatile uint32_t *reg;
 
-	reg = portConfigRegister(hardware().mosi_pin[mosi_pin_index]);
+	reg = portConfigRegister(hardware().sdo_pin[sdo_pin_index]);
 	*reg = 0;
-	reg = portConfigRegister(hardware().miso_pin[miso_pin_index]);
+	reg = portConfigRegister(hardware().sdi_pin[sdi_pin_index]);
 	*reg = 0;
 	reg = portConfigRegister(hardware().sck_pin[sck_pin_index]);
 	*reg = 0;
@@ -434,18 +446,18 @@ bool SPIClass::pinIsChipSelect(uint8_t pin1, uint8_t pin2)
 	return true;
 }
 
-bool SPIClass::pinIsMOSI(uint8_t pin)
+bool SPIClass::pinIsSDO(uint8_t pin)
 {
-	for (unsigned int i = 0; i < sizeof(hardware().mosi_pin); i++) {
-		if (pin == hardware().mosi_pin[i]) return true;
+	for (unsigned int i = 0; i < sizeof(hardware().sdo_pin); i++) {
+		if (pin == hardware().sdo_pin[i]) return true;
 	}
 	return false;
 }
 
-bool SPIClass::pinIsMISO(uint8_t pin)
+bool SPIClass::pinIsSDI(uint8_t pin)
 {
-	for (unsigned int i = 0; i < sizeof(hardware().miso_pin); i++) {
-		if (pin == hardware().miso_pin[i]) return true;
+	for (unsigned int i = 0; i < sizeof(hardware().sdi_pin); i++) {
+		if (pin == hardware().sdi_pin[i]) return true;
 	}
 	return false;
 }
@@ -459,56 +471,59 @@ bool SPIClass::pinIsSCK(uint8_t pin)
 }
 
 // setCS() is not intended for use from normal Arduino programs/sketches.
+// TODO: add code to un-multiplex a pin if one already set.
 uint8_t SPIClass::setCS(uint8_t pin)
 {
 	for (unsigned int i = 0; i < sizeof(hardware().cs_pin); i++) {
-		if (pin == hardware().cs_pin[i]) {
-			volatile uint32_t *reg = portConfigRegister(pin);
-			*reg = hardware().cs_mux[i];
-			return hardware().cs_mask[i];
+		if ((mcr_master) || (hardware().cs_mask[i] == 0x1)) { // Slave mode can only use CS0
+			if (pin == hardware().cs_pin[i]) {
+				volatile uint32_t *reg = portConfigRegister(pin);
+				*reg = hardware().cs_mux[i] | (mcr_master ?  PORT_PCR_DSE : (PORT_PCR_PE | PORT_PCR_PS));
+				return hardware().cs_mask[i];
+			}
 		}
 	}
 	return 0;
 }
 
-void SPIClass::setMOSI(uint8_t pin)
+void SPIClass::setSDO(uint8_t pin)
 {
-	if (hardware_addr == (uintptr_t)&spi0_hardware) {
+	if (mcr_master && (hardware_addr == (uintptr_t)&spi0_hardware)) {
 		SPCR.setMOSI_soft(pin);
 	}
-	if (pin != hardware().mosi_pin[mosi_pin_index]) {
-		for (unsigned int i = 0; i < sizeof(hardware().mosi_pin); i++) {
-			if  (pin == hardware().mosi_pin[i]) {
+	if (pin != hardware().sdo_pin[sdo_pin_index]) {
+		for (unsigned int i = 0; i < sizeof(hardware().sdo_pin); i++) {
+			if  (pin == hardware().sdo_pin[i]) {
 				if (hardware().clock_gate_register & hardware().clock_gate_mask) {
 					volatile uint32_t *reg;
-					reg = portConfigRegister(hardware().mosi_pin[mosi_pin_index]);
+					reg = portConfigRegister(hardware().sdo_pin[sdo_pin_index]);
 					*reg = 0;
-					reg = portConfigRegister(hardware().mosi_pin[i]);
-					*reg = hardware().mosi_mux[i];
+					reg = portConfigRegister(hardware().sdo_pin[i]);
+					*reg = hardware().sdo_mux[i];
 				}	
-				mosi_pin_index = i;
+				sdo_pin_index = i;
 				return;
 			}
 		}
 	}
 }
 
-void SPIClass::setMISO(uint8_t pin)
+void SPIClass::setSDI(uint8_t pin)
 {
-	if (hardware_addr == (uintptr_t)&spi0_hardware) {
+	if (mcr_master && (hardware_addr == (uintptr_t)&spi0_hardware)) {
 		SPCR.setMISO_soft(pin);
 	}
-	if (pin != hardware().miso_pin[miso_pin_index]) {
-		for (unsigned int i = 0; i < sizeof(hardware().miso_pin); i++) {
-			if  (pin == hardware().miso_pin[i]) {
+	if (pin != hardware().sdi_pin[sdi_pin_index]) {
+		for (unsigned int i = 0; i < sizeof(hardware().sdi_pin); i++) {
+			if  (pin == hardware().sdi_pin[i]) {
 				if (hardware().clock_gate_register & hardware().clock_gate_mask) {
 					volatile uint32_t *reg;
-					reg = portConfigRegister(hardware().miso_pin[miso_pin_index]);
+					reg = portConfigRegister(hardware().sdi_pin[sdi_pin_index]);
 					*reg = 0;
-					reg = portConfigRegister(hardware().miso_pin[i]);
-					*reg = hardware().miso_mux[i];
+					reg = portConfigRegister(hardware().sdi_pin[i]);
+					*reg = hardware().sdi_mux[i];
 				}	
-				miso_pin_index = i;
+				sdi_pin_index = i;
 				return;
 			}
 		}
@@ -517,7 +532,7 @@ void SPIClass::setMISO(uint8_t pin)
 
 void SPIClass::setSCK(uint8_t pin)
 {
-	if (hardware_addr == (uintptr_t)&spi0_hardware) {
+	if (mcr_master && (hardware_addr == (uintptr_t)&spi0_hardware)) {
 		SPCR.setSCK_soft(pin);
 	}
 	if (pin != hardware().sck_pin[sck_pin_index]) {
