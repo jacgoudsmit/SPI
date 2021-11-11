@@ -44,11 +44,12 @@ void setup(void)
     SPI.begin(true);
     Serial.println("Ready, set...");
 
-    // By default: SPI0
-    // SDI (MOSI) = 12 (Alternates 8, 39)
-    // SDO (MISO) = 11 (Alternates 7, 28)
-    // SCK = 13 (also LED) (Alternates 14, 27)
-    // SS = 10 (Alternates 2, 9, 26 (master/slave), 20, 23, 21, 22, 15, 6, 45 (master only))
+    // SPI0: Default pin | Alternate pin (Teensy 3.2/3.5/3.6) | Additional alternate pins (Teensy 3.5/3.6)
+    // SDI (MOSI)       = 12 |  8 | 39
+    // SDO (MISO)       = 11 |  7 | 28
+    // SCK (also LED)   = 13 | 14 | 27
+    // SS  (slave)      = 10 |  2 | 26
+    // SS  (master)     = 10 |  2, 9, 6, 20, 23, 21, 22, 15 | 26, 45
 
     // Setup interrupt
     p->RSER = SPI_RSER_RFDF_RE; // generate IRQ (which calls spi0_isr()) on receive

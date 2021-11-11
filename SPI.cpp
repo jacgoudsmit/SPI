@@ -204,9 +204,9 @@ const SPIClass::SPI_Hardware_t SPIClass::spi0_hardware = { // Teensy 3.0 / 3.1 /
 	12, 8,
 	PORT_PCR_MUX(2), PORT_PCR_MUX(2),
 	11, 7,
-	PORT_PCR_DSE | PORT_PCR_MUX(2), PORT_PCR_MUX(2),
+	PORT_PCR_MUX(2), PORT_PCR_MUX(2),
 	13, 14,
-	PORT_PCR_DSE | PORT_PCR_MUX(2), PORT_PCR_MUX(2),
+	PORT_PCR_MUX(2), PORT_PCR_MUX(2),
 	10, 2, 9, 6, 20, 23, 21, 22, 15,
 	PORT_PCR_MUX(2),  PORT_PCR_MUX(2), PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),  PORT_PCR_MUX(2),
 	0x1, 0x1, 0x2, 0x2, 0x4, 0x4, 0x8, 0x8, 0x10
@@ -293,11 +293,11 @@ void SPIClass::begin(bool slave)
 	port().MCR |= SPI_MCR_CLR_RXF | SPI_MCR_CLR_TXF; // Clear the FIFO buffers
 	port().MCR = mcr_master | SPI_MCR_PCSIS(0x1F);
 	reg = portConfigRegister(hardware().sdo_pin[sdo_pin_index]);
-	*reg = hardware().sdo_mux[sdo_pin_index];
+	*reg = hardware().sdo_mux[sdo_pin_index] | PORT_PCR_DSE;
 	reg = portConfigRegister(hardware().sdi_pin[sdi_pin_index]);
 	*reg= hardware().sdi_mux[sdi_pin_index];
 	reg = portConfigRegister(hardware().sck_pin[sck_pin_index]);
-	*reg = hardware().sck_mux[sck_pin_index];
+	*reg = hardware().sck_mux[sck_pin_index] | (mcr_master ? PORT_PCR_DSE : 0);
 	if (!mcr_master) {
 		// In slave mode, we need to set up the slave pin. Only the CS0 pins
 		// will work, i.e. any pin with mask 0x1.
@@ -499,7 +499,7 @@ void SPIClass::setSDO(uint8_t pin)
 					reg = portConfigRegister(hardware().sdo_pin[sdo_pin_index]);
 					*reg = 0;
 					reg = portConfigRegister(hardware().sdo_pin[i]);
-					*reg = hardware().sdo_mux[i];
+					*reg = hardware().sdo_mux[i] | PORT_PCR_DSE;
 				}	
 				sdo_pin_index = i;
 				return;
@@ -543,7 +543,7 @@ void SPIClass::setSCK(uint8_t pin)
 					reg = portConfigRegister(hardware().sck_pin[sck_pin_index]);
 					*reg = 0;
 					reg = portConfigRegister(hardware().sck_pin[i]);
-					*reg = hardware().sck_mux[i];
+					*reg = hardware().sck_mux[i] | (mcr_master ? PORT_PCR_DSE : 0);
 				}	
 				sck_pin_index = i;
 				return;
