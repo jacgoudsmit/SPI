@@ -28,12 +28,9 @@ call begin() first before you change the configuration.
 
 #include "SPI.h"
 
-#ifndef SPI_HAS_SLAVEMODE
+#ifndef SPI_HAS_SLAVE_MODE
 #error "Sorry I need SPI Slave Mode. https://github.com/jacgoudsmit/SPI"
 #endif
-
-volatile KINETISK_SPI_t * volatile p = &KINETISK_SPI0;
-volatile bool ready;
 
 void setup(void)
 {
@@ -52,13 +49,9 @@ void setup(void)
     // SS  (master)     = 10 |  2, 9, 6, 20, 23, 21, 22, 15 | 26, 45
 
     // Setup interrupt
-    p->RSER = SPI_RSER_RFDF_RE; // generate IRQ (which calls spi0_isr()) on receive
-    NVIC_SET_PRIORITY(IRQ_SPI0, 1); // set IRQ priority
-    NVIC_ENABLE_IRQ(IRQ_SPI0); // enable IRQ
+    SPI.onReceive(receive, NULL);
 
     Serial.println("\nsetup done\n");
-
-    ready = true;
 }  // end of setup
 
 void loop(void)
@@ -67,27 +60,8 @@ void loop(void)
     delay(1000);
 }  // end of loop
 
-void spi0_isr() { // Reserved function name; do not change
-    if (ready)
-    {
-        Serial.println("IRQ");
-        while ( 0 != (p->SR & 0xF0) ) {
-            p->PUSHR = 0;
-            Serial.print("VALUE: 0x");
-            Serial.println(p->POPR, HEX);
-        }
-        Serial.println("EOI");
-    }
-    else
-    {
-        p->PUSHR = 0;
-    }
-
-    // Clear the Receive FIFO Drain Flag so we can receive the next
-    // interrupt
-    // NOTE: There may be a race condition here: If a frame arrived between
-    // the last time that the "while" above detected that the FIFO was empty
-    // and this instruction, and there are no further frames incoming,
-    // will we get a receive interrupt?
-    p->SR |= SPI_SR_RFDF;
-}
+void receive(void *userdata, uint32_t rxdata)
+{
+    Serial.print("VALUE: 0x");
+    Serial.println(rxdata, HEX);
+}

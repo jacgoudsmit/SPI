@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2010 by Cristian Maglie <c.maglie@bug.st>
- * SPI Master library for arduino.
+ * SPI library for arduino.
  *
  * This file is free software; you can redistribute it and/or modify
  * it under the terms of either the GNU General Public License version 2
@@ -288,6 +288,7 @@ void SPIClass::begin(bool slave)
 	mcr_master = slave ? 0 : SPI_MCR_MSTR;
 	hardware().clock_gate_register |= hardware().clock_gate_mask;
 	port().MCR = SPI_MCR_MDIS | SPI_MCR_HALT | SPI_MCR_PCSIS(0x1F);
+    onReceive(NULL, NULL);
 	port().CTAR0 = SPI_CTAR_FMSZ(7) | (mcr_master ? (SPI_CTAR_PBR(0) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(1)) : 0);
 	port().CTAR1 = (mcr_master ? (SPI_CTAR_FMSZ(15) | SPI_CTAR_PBR(0) | SPI_CTAR_BR(1) | SPI_CTAR_CSSCK(1)) : 0); // CTAR1 cannot be used in slave mode
 	port().MCR |= SPI_MCR_CLR_RXF | SPI_MCR_CLR_TXF; // Clear the FIFO buffers
@@ -314,6 +315,7 @@ void SPIClass::end()
 {
 	volatile uint32_t *reg;
 
+	onReceive(NULL, NULL);
 	reg = portConfigRegister(hardware().sdo_pin[sdo_pin_index]);
 	*reg = 0;
 	reg = portConfigRegister(hardware().sdi_pin[sdi_pin_index]);
@@ -321,6 +323,29 @@ void SPIClass::end()
 	reg = portConfigRegister(hardware().sck_pin[sck_pin_index]);
 	*reg = 0;
 	port().MCR = SPI_MCR_MDIS | SPI_MCR_HALT | SPI_MCR_PCSIS(0x1F);
+}
+
+// Interrupt handlers for each port.
+// NOTE: The names of these functions cannot be changed; they are declared
+// in the kinetis.h header file as weak symbols, and stored into the
+// interrupt controller vector table there.
+void spi0_isr() { SPI.isr(); }
+#if defined(__MK64FX512__) || defined(__MK66FX1M0__) // Teensy 3.5 / 3.6
+void spi1_isr() { SPI1.isr(); }
+void spi2_isr() { SPI2.isr(); }
+#endif
+
+// private interrupt handler
+void SPIClass::isr()
+{
+    if (receivefunc) {
+        while (available()) {
+            receivefunc(receivedata, port().POPR);
+        }
+    }
+
+    // Clear the Receive FIFO Drain Flag
+    port().SR |= SPI_SR_RFDF;
 }
 
 void SPIClass::usingInterrupt(IRQ_NUMBER_t interruptName)

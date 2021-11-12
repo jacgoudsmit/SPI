@@ -66,6 +66,10 @@
 #define SPI_CLOCK_MASK 0x03  // SPR1 = bit 1, SPR0 = bit 0 on SPCR
 #define SPI_2XCLOCK_MASK 0x01  // SPI2X = bit 0 on SPSR
 
+// Callback function type for user-defined receive interrupt handler
+// The user data is set when you call OnReceive()
+// Received data is a single frame of SPI data
+typedef void SPI_ReceiveCB(void *userdata, uint32_t rxdata);
 
 /**********************************************************/
 /*     8 bit AVR-based boards                             */
@@ -82,7 +86,7 @@
   #define SPI_AVR_EIMSK	 GIMSK
 #endif
 
-class SPISettings {
+class SPISettings { // AVR
 public:
 	SPISettings(uint32_t clock, uint8_t bitOrder, uint8_t dataMode) {
 		if (__builtin_constant_p(clock)) {
@@ -323,7 +327,8 @@ private:
 
 #define SPI_HAS_NOTUSINGINTERRUPT 1
 #define SPI_ATOMIC_VERSION 1
-#define SPI_HAS_SLAVEMODE 1
+#define SPI_HAS_SLAVE_MODE 1
+#define SPI_SLAVE_MODE_SWAPS_MISO_MOSI 1
 
 class SPISettings {
 public:
@@ -607,6 +612,34 @@ public:
 	// Disable the SPI bus
 	void end();
 
+    // Set a callback function when receiving data
+    // Set the function to NULL to cancel receive callbacks
+    void onReceive(SPI_ReceiveCB *cbfunc, void *userdata, uint8_t priority = 1)
+    {
+        __disable_irq();
+        if (!cbfunc) {
+            // Disabling callbacks from interrupt handler
+            NVIC_DISABLE_IRQ(hardware().spi_irq);
+            port().RSER &= ~SPI_RSER_RFDF_RE;
+        }
+        receivefunc = cbfunc;
+        receivedata = userdata;
+        if (cbfunc) {
+            // Enable interrupt flag on both SPI hardware and on interrupt
+            // controller
+            port().RSER |= SPI_RSER_RFDF_RE;
+            NVIC_SET_PRIORITY(hardware().spi_irq, priority);
+            NVIC_ENABLE_IRQ(hardware().spi_irq);
+        }
+        __enable_irq();
+    }
+
+    // Check if any incoming data is available
+    bool available()
+    {
+        return (0 != (port().SR & 0xF0));
+    }
+
 	// This function is deprecated.	 New applications should use
 	// beginTransaction() to configure SPI settings.
 	void setBitOrder(uint8_t bitOrder); // In slave mode, only MSBFIRST is supported
@@ -676,6 +709,9 @@ private:
 	uint8_t interruptMasksUsed = 0;
 	uint32_t interruptMask[(NVIC_NUM_INTERRUPTS+31)/32] = {};
 	uint32_t interruptSave[(NVIC_NUM_INTERRUPTS+31)/32] = {};
+    SPI_ReceiveCB *receivefunc = NULL;
+    void isr();
+    void *receivedata = NULL;
 	#ifdef SPI_TRANSACTION_MISMATCH_LED
 	uint8_t inTransactionFlag = 0;
 	#endif
@@ -690,6 +726,13 @@ private:
 	DMAChannel   *_dmaTX = nullptr;
 	DMAChannel    *_dmaRX = nullptr;
 	EventResponder *_dma_event_responder = nullptr;
+#endif
+
+    // Declare SPI interrupt handlers as friends
+    friend void spi0_isr();
+#if defined(__MK64FX512__) || defined(__MK66FX1M0__) // Teensy 3.5 / 3.6
+    friend void spi1_isr();
+    friend void spi2_isr();
 #endif
 };
 
