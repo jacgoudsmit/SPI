@@ -32,6 +32,8 @@ pinIsChipSelect	KEYWORD2
 pinIsMOSI	KEYWORD2
 pinIsMISO	KEYWORD2
 pinIsSCK	KEYWORD2
+onReceive	KEYWORD2
+available	KEYWORD2
 
 
 #######################################
