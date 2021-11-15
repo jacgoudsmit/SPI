@@ -3,7 +3,7 @@
  * Copyright (c) 2014 by Paul Stoffregen <paul@pjrc.com> (Transaction API)
  * Copyright (c) 2014 by Matthijs Kooijman <matthijs@stdin.nl> (SPISettings AVR)
  * Copyright (c) 2021 by Jac Goudsmit (Slave Mode)
- * SPI library for arduino.
+ * SPI library for Arduino.
  *
  * This file is free software; you can redistribute it and/or modify
  * it under the terms of either the GNU General Public License version 2
@@ -76,6 +76,16 @@ typedef void SPI_ReceiveCB(void *userdata, uint32_t rxdata);
 /**********************************************************/
 
 #if defined(__AVR__)
+
+// SPI_HAS_SLAVE_MODE is defined if the SPI port(s) support Slave Mode.
+// To set up a SPI port in Slave Mode, user begin(true) instead of begin()
+// and/or use beginTransaction with a clock value of 0.
+// In slave mode, the SCK and SS pins becomes inputs. The MISO and MOSI pins
+// either retain their named function (MISO becomes output and MOSI becomes
+// input, signified by SPI_SLAVE_MODE_CHANGES_PIN_
+#define SPI_HAS_SLAVE_MODE 1
+#define SPI_SLAVE_MODE_CHANGES_PIN_DIRECTIONS 1 // MISO/MOSI I/O direction changes in slave mode
+
 #define SPI_ATOMIC_VERSION 1
 // define SPI_AVR_EIMSK for AVR boards with external interrupt pins
 #if defined(EIMSK)
@@ -104,9 +114,12 @@ private:
 	}
 	void init_AlwaysInline(uint32_t clock, uint8_t bitOrder, uint8_t dataMode)
 	  __attribute__((__always_inline__)) {
-		// Clock settings are defined as follows. Note that this shows SPI2X
-		// inverted, so the bits form increasing numbers. Also note that
-		// fosc/64 appears twice
+		// In Master mode, the clock parameter determines the speed.
+		// The clock parameter is set to zero for slave mode.
+		//
+		// Clock settings in master mode are defined as follows. Note that
+		// this shows SPI2X inverted, so the bits form increasing numbers.
+		// Also note that fosc/64 appears twice
 		// SPR1 SPR0 ~SPI2X Freq
 		//   0	  0	0   fosc/2
 		//   0	  0	1   fosc/4
@@ -116,65 +129,83 @@ private:
 		//   1	  0	1   fosc/64
 		//   1	  1	0   fosc/64
 		//   1	  1	1   fosc/128
-
+	
 		// We find the fastest clock that is less than or equal to the
 		// given clock rate. The clock divider that results in clock_setting
 		// is 2 ^^ (clock_div + 1). If nothing is slow enough, we'll use the
 		// slowest (128 == 2 ^^ 7, so clock_div = 6).
 		uint8_t clockDiv;
 
-		// When the clock is known at compiletime, use this if-then-else
-		// cascade, which the compiler knows how to completely optimize
-		// away. When clock is not known, use a loop instead, which generates
-		// shorter code.
-		if (__builtin_constant_p(clock)) {
-			if (clock >= F_CPU / 2) {
-				clockDiv = 0;
-			} else if (clock >= F_CPU / 4) {
-				clockDiv = 1;
-			} else if (clock >= F_CPU / 8) {
-				clockDiv = 2;
-			} else if (clock >= F_CPU / 16) {
-				clockDiv = 3;
-			} else if (clock >= F_CPU / 32) {
-				clockDiv = 4;
-			} else if (clock >= F_CPU / 64) {
-				clockDiv = 5;
+		if (clock) {
+			// Set up in Master mode
+			//
+			// When the clock is known at compile time, use this if-then-else
+			// cascade, which the compiler knows how to completely optimize
+			// away. When clock is not known, use a loop instead, which generates
+			// shorter code.
+			if (__builtin_constant_p(clock)) {
+				if (clock >= F_CPU / 2) {
+					clockDiv = 0;
+				} else if (clock >= F_CPU / 4) {
+					clockDiv = 1;
+				} else if (clock >= F_CPU / 8) {
+					clockDiv = 2;
+				} else if (clock >= F_CPU / 16) {
+					clockDiv = 3;
+				} else if (clock >= F_CPU / 32) {
+					clockDiv = 4;
+				} else if (clock >= F_CPU / 64) {
+					clockDiv = 5;
+				} else {
+					clockDiv = 6;
+				}
 			} else {
-				clockDiv = 6;
+				uint32_t clockSetting = F_CPU / 2;
+				clockDiv = 0;
+				while (clockDiv < 6 && clock < clockSetting) {
+					clockSetting /= 2;
+					clockDiv++;
+				}
 			}
+	
+			// Compensate for the duplicate fosc/64
+			if (clockDiv == 6)
+			clockDiv = 7;
+	
+			// Invert the SPI2X bit
+			clockDiv ^= 0x1;
+
+			// Set master mode
+			spcr_master = _BV(MSTR);
 		} else {
-			uint32_t clockSetting = F_CPU / 2;
+			// Set up in Slave mode
+
+			// Just leave the clock fields blank
 			clockDiv = 0;
-			while (clockDiv < 6 && clock < clockSetting) {
-				clockSetting /= 2;
-				clockDiv++;
-			}
+
+			// Clear the master mode bit
+			spcr_master = 0;
 		}
 
-		// Compensate for the duplicate fosc/64
-		if (clockDiv == 6)
-		clockDiv = 7;
-
-		// Invert the SPI2X bit
-		clockDiv ^= 0x1;
-
 		// Pack into the SPISettings class
-		spcr = _BV(SPE) | _BV(MSTR) | ((bitOrder == LSBFIRST) ? _BV(DORD) : 0) |
+		spcr = _BV(SPE) | spcr_master | ((bitOrder == LSBFIRST) ? _BV(DORD) : 0) |
 			(dataMode & SPI_MODE_MASK) | ((clockDiv >> 1) & SPI_CLOCK_MASK);
 		spsr = clockDiv & SPI_2XCLOCK_MASK;
 	}
+	uint8_t spcr_master;
 	uint8_t spcr;
 	uint8_t spsr;
 	friend class SPIClass;
 };
 
 
+// Declare interrupt handler to avoid compiler or linker error
+ISR (SPI_STC_vect);
 
 class SPIClass { // AVR
 public:
 	// Initialize the SPI library
-	static void begin();
+	static void begin(bool slave = false);
 
 	// If SPI is used from within an interrupt, this function registers
 	// that interrupt with the SPI library, so beginTransaction() can
@@ -284,6 +315,29 @@ public:
 	// Disable the SPI bus
 	static void end();
 
+    static void onReceive(SPI_ReceiveCB *cbfunc, void *userdata)
+    {
+        noInterrupts();
+        if (!cbfunc) {
+            // Disabling the receive callback
+            SPCR &= ~_BV(SPIE);
+            cbfunc = dummy; // The function pointer is always valid
+        }
+        receivefunc = cbfunc;
+        receivedata = userdata;
+        if (cbfunc) {
+            // Enabling the receive callback
+            SPCR |= _BV(SPIE);
+        }
+        interrupts();
+    }
+
+    // Check if incoming data is available
+    bool available()
+    {
+        return (SPSR & _BV(SPIF)) != 0;
+    }
+
 	// This function is deprecated.	 New applications should use
 	// beginTransaction() to configure SPI settings.
 	inline static void setBitOrder(uint8_t bitOrder) {
@@ -311,6 +365,11 @@ private:
 	static uint8_t interruptMode; // 0=none, 1=mask, 2=global
 	static uint8_t interruptMask; // which interrupts to mask
 	static uint8_t interruptSave; // temp storage, to restore state
+	static dummy(void *userdata, uint32_t rxdata) {}
+	static SPI_ReceiveCB *receivefunc = dummy;
+	static void *receivedata;
+	friend void SPI_STC_vect(); // Allow ISR to access private variables
+
 	#ifdef SPI_TRANSACTION_MISMATCH_LED
 	static uint8_t inTransactionFlag;
 	#endif

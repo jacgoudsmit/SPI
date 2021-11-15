@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2010 by Cristian Maglie <c.maglie@bug.st>
- * SPI library for arduino.
+ * SPI library for Arduino.
  *
  * This file is free software; you can redistribute it and/or modify
  * it under the terms of either the GNU General Public License version 2
@@ -19,6 +19,8 @@
 
 #if defined(__AVR__)
 
+#include <util/atomic.h>
+
 SPIClass SPI;
 
 uint8_t SPIClass::interruptMode = 0;
@@ -28,37 +30,143 @@ uint8_t SPIClass::interruptSave = 0;
 uint8_t SPIClass::inTransactionFlag = 0;
 #endif
 uint8_t SPIClass::_transferWriteFill = 0;
+static SPI_ReceiveCB *SPIClass::receivefunc;
+static void *SPIClass::receivedata;
 
-
-void SPIClass::begin()
+void SPIClass::begin(bool slave)
 {
-	// Set SS to high so a connected chip will be "deselected" by default
-	digitalWrite(SS, HIGH);
+	if (!slave) {
+		// Set SS to high so a connected chip will be "deselected" by default
+		digitalWrite(SS, HIGH);
 
-	// When the SS pin is set as OUTPUT, it can be used as
-	// a general purpose output port (it doesn't influence
-	// SPI operations).
-	pinMode(SS, OUTPUT);
+		// When the SS pin is set as OUTPUT, it can be used as
+		// a general purpose output port (it doesn't influence
+		// SPI operations).
+		pinMode(SS, OUTPUT);
 
-	// Warning: if the SS pin ever becomes a LOW INPUT then SPI
-	// automatically switches to Slave, so the data direction of
-	// the SS pin MUST be kept as OUTPUT.
-	SPCR |= _BV(MSTR);
+		// Warning: if the SS pin ever becomes a LOW INPUT then SPI
+		// automatically switches to Slave, so the data direction of
+		// the SS pin MUST be kept as OUTPUT.
+		SPCR |= _BV(MSTR);
+	} else {
+		SPCR &= _BV(MSTR);
+	}
+
+	// Make sure no callback is enabled
+	onReceive(NULL, NULL);
+
+	// Enable the SPI bus. This automatically overrides the input pins
+	// (MISO in master mode; MOSI, SS and SCK in slave mode) to input mode.
 	SPCR |= _BV(SPE);
 
-	// Set direction register for SCK and MOSI pin.
-	// MISO pin automatically overrides to INPUT.
-	// By doing this AFTER enabling SPI, we avoid accidentally
-	// clocking in a single bit since the lines go directly
-	// from "input" to SPI control.
-	// http://code.google.com/p/arduino/issues/detail?id=888
-	pinMode(SCK, OUTPUT);
-	pinMode(MOSI, OUTPUT);
+	// Set direction register for output pins. We don't need to set the
+	// pin mode for input pins; they are automatically set by enabling the
+	// SPI port.
+	if (!slave) {
+		// By doing this AFTER enabling SPI, we avoid accidentally
+		// clocking in a single bit since the lines go directly
+		// from "input" to SPI control.
+		// http://code.google.com/p/arduino/issues/detail?id=888
+		pinMode(SCK, OUTPUT);
+	}
+	pinMode(slave ? MISO : MOSI, OUTPUT);
 }
 
 void SPIClass::end() {
+	onReceive(NULL, NULL);
 	SPCR &= ~_BV(SPE);
 }
+
+// SPI interrupt service worker routine
+// The AVR doesn't have a FIFO, (it's just double-buffered, in the receive
+// direction only), and even the simplest receiver callback function takes
+// too long. For example, when using the "Master" sample program from
+// Nick Gammon, caused my Arduino Duemilenova to drop bytes even if
+// all the callback function does is to put the incoming data in a buffer.
+//
+// To compensate for this, the interrupt service routine gets the incoming
+// data as quickly as possible, and stores it into a static FIFO buffer.
+// Then it enables interrupts so nested interrupts are possible, and starts
+// calling the callback function for all the bytes in the FIFO buffer.
+//
+// The IRQ may (and probably will) happen again before the ISR has
+// finished processing, but recursive interrupts only store bytes in the
+// FIFO buffer; they don't process the bytes by calling the callback
+// function. After enabling interrupts, the only code that recursive Ineeds executing is a test
+// whether the interrupt recursion count is zero. If not, the ISR quickly
+// ends, to minimize the chance of stack overflow.
+//
+// The initial IRQ doesn't return to the main program until it has
+// completely caught up with the queue of incoming bytes.
+// If too many bytes arrive in quick succession, 
+ISR (SPI_STC_vect)
+{
+    static volatile byte fifo[16];
+    static volatile byte *head = fifo;
+    static volatile byte *tail = fifo;
+    const byte *pend = &fifo[sizeof(fifo)];
+    static volatile byte count;
+
+    register byte c = SPDR;
+
+    // Don't do anything if the FIFO is full (we don't want to overwrite
+    // old unprocessed data with overflow data)
+    if (count < sizeof(fifo)) {
+        // Make space for the new byte; wrap around to the top of the buffer
+        // we reach the end
+        if (++tail == pend)
+             tail = fifo;
+
+        // Store the incoming data
+        *tail = c;
+
+        // Make a local copy of the count so there's no race condition after
+        // we turn interrupts back on
+        register byte localcount = count++;
+
+        // Allow recursive interrupts as early as possible
+        interrupts();
+
+        // If we just added the first byte to the buffer, we're in charge
+        // of doing the callbacks.
+        // The "if" expression will be false for recursive interrupts, and
+        // they will exit immediately.
+        if (!localcount) {
+            // We added the first byte to the buffer.
+            // Keep processing bytes in the buffer until it's empty.
+            // Note: we may be interrupted by ourselves here, but the
+            // recursive interrupts will not execute this code.
+
+            for (;;) {
+                // Go the next incoming byte; wrap around the buffer if
+                // needed
+                if (++head == pend)
+                    head = fifo;
+
+                // Call the callback function on the incoming byte
+                SPI.receivefunc(SPI.receivedata, *head);
+
+                // If we're done, we can quit.
+                // Note: We have to decrease count atomically; a decrement
+                // is not atomic on the AVR even if it's only a byte.
+                // TOOD: use atomic_uchar for count and make atomic block and copy to localcount unnecessary
+                ATOMIC_BLOCK(ATOMIC_FORCEON) {
+                    localcount = --count;
+                }
+
+                if (!localcount)
+                    break;
+            }
+        }
+    }
+    else
+    {
+        // TODO: Call FIFO overflow callback here
+    }
+}
+
+// SPI Interrupt Service Routine
+//ISR (SPI_STC_vect) { SPI_isr(); }
 
 // mapping of interrupt numbers to bits within SPI_AVR_EIMSK
 #if defined(__AVR_ATmega32U4__)
